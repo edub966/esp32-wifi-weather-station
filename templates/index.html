@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WX-32 Weather Station</title>
+<style>
+:root {
+  --bg:        #0a0c0a;
+  --bg2:       #0f120f;
+  --bg3:       #141814;
+  --panel:     #111411;
+  --border:    #1e241e;
+  --border2:   #2a322a;
+  --amber:     #e8a020;
+  --amber-dim: #7a4e08;
+  --amber-lo:  #2a1c04;
+  --teal:      #2ec4a0;
+  --teal-dim:  #0f5244;
+  --teal-lo:   #051f19;
+  --red:       #e84040;
+  --red-dim:   #6b1010;
+  --text-hi:   #d8ddd8;
+  --text-mid:  #7a8c7a;
+  --text-lo:   #3a4a3a;
+  --scan:      rgba(46,196,160,0.03);
+  --font-mono: 'Courier New', 'Lucida Console', monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 14px; }
+
+body {
+  background: var(--bg);
+  color: var(--text-hi);
+  font-family: var(--font-mono);
+  min-height: 100vh;
+  overflow-x: hidden;
+  position: relative;
+}
+
+.bg-layer { position: fixed; inset: 0; pointer-events: none; z-index: 0; }
+.bg-grid {
+  position: absolute; inset: 0;
+  background-image: linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px);
+  background-size: 40px 40px;
+  opacity: 0.4;
+}
+.bg-vignette {
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse 80% 80% at 50% 40%, transparent 40%, var(--bg) 100%);
+}
+.radar-rings {
+  position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 140vmax; height: 140vmax;
+}
+.radar-rings::before, .radar-rings::after {
+  content: ''; position: absolute; border-radius: 50%;
+  border: 1px solid var(--teal-dim);
+  top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: 0.15;
+}
+.radar-rings::before { width: 60%; height: 60%; }
+.radar-rings::after  { width: 100%; height: 100%; }
+.radar-ring-inner {
+  position: absolute; border-radius: 50%;
+  border: 1px solid var(--teal-dim);
+  top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: 0.1;
+}
+.radar-ring-inner:nth-child(1) { width: 20%; height: 20%; }
+.radar-ring-inner:nth-child(2) { width: 40%; height: 40%; }
+.radar-ring-inner:nth-child(3) { width: 80%; height: 80%; }
+.scanlines {
+  position: absolute; inset: 0;
+  background: repeating-linear-gradient(0deg, transparent, transparent 2px, var(--scan) 2px, var(--scan) 4px);
+}
+.radar-sweep-wrap {
+  position: fixed; top: 50%; left: 50%;
+  width: 120vmax; height: 120vmax;
+  transform: translate(-50%, -50%);
+  pointer-events: none; z-index: 0; opacity: 0.06; overflow: hidden; border-radius: 50%;
+}
+.radar-sweep {
+  position: absolute; inset: 0; border-radius: 50%;
+  background: conic-gradient(from 0deg, transparent 0deg, transparent 300deg, rgba(46,196,160,0.8) 350deg, rgba(46,196,160,0.2) 360deg);
+  animation: sweep 8s linear infinite;
+}
+@keyframes sweep { to { transform: rotate(360deg); } }
+
+.shell {
+  position: relative; z-index: 1;
+  max-width: 1100px; margin: 0 auto;
+  padding: 1rem 1.25rem 2rem;
+  display: flex; flex-direction: column; gap: 1rem;
+}
+
+/* TOP BAR */
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 1rem; padding: 0.6rem 1rem;
+  background: var(--panel); border: 1px solid var(--border2); flex-wrap: wrap;
+}
+.topbar-left { display: flex; align-items: center; gap: 1rem; }
+.station-id { font-size: 11px; font-weight: 700; letter-spacing: 0.25em; text-transform: uppercase; color: var(--teal); }
+.fw-tag { font-size: 10px; letter-spacing: 0.1em; color: var(--text-lo); text-transform: uppercase; }
+.topbar-right { display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap; }
+.live-pill { display: flex; align-items: center; gap: 6px; font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--teal); }
+.live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--teal); animation: pulse-dot 1.6s ease-in-out infinite; }
+@keyframes pulse-dot { 0%,100%{opacity:1;transform:scale(1);}50%{opacity:0.3;transform:scale(0.7);} }
+.wifi-bars { display: flex; align-items: flex-end; gap: 2px; height: 14px; }
+.wifi-bar { width: 4px; background: var(--text-lo); border-radius: 1px; transition: background 0.3s; }
+.wifi-bar:nth-child(1){height:4px;} .wifi-bar:nth-child(2){height:7px;} .wifi-bar:nth-child(3){height:10px;} .wifi-bar:nth-child(4){height:14px;}
+.wifi-bar.active { background: var(--teal); }
+.wifi-label { font-size: 10px; color: var(--text-mid); letter-spacing: 0.08em; }
+.last-update { font-size: 10px; color: var(--text-lo); letter-spacing: 0.06em; }
+.refresh-btn {
+  display: flex; align-items: center; gap: 8px; padding: 6px 14px;
+  background: transparent; border: 1px solid var(--border2);
+  color: var(--text-mid); font-family: var(--font-mono);
+  font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase;
+  cursor: pointer; transition: border-color 0.2s, color 0.2s, background 0.2s;
+}
+.refresh-btn:hover { border-color: var(--teal-dim); color: var(--teal); background: var(--teal-lo); }
+.refresh-btn:active { transform: scale(0.97); }
+.refresh-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.refresh-btn.spinning .refresh-icon { animation: spin 0.5s linear; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.refresh-icon { display: inline-block; font-style: normal; line-height: 1; }
+
+/* MAIN GRID */
+.main-grid {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  grid-template-rows: auto auto;
+  gap: 1rem;
+}
+
+/* HERO */
+.hero {
+  grid-column: 1; grid-row: 1;
+  background: var(--panel); border: 1px solid var(--border2);
+  padding: 2rem 2.5rem; position: relative; overflow: hidden;
+}
+.hero::before {
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(ellipse 60% 70% at 30% 50%, rgba(232,160,32,0.04) 0%, transparent 70%);
+  pointer-events: none;
+}
+.hero-corner-tl, .hero-corner-br {
+  position: absolute; width: 20px; height: 20px;
+  border-color: var(--amber-dim); border-style: solid;
+}
+.hero-corner-tl { top:0;left:0;border-width:2px 0 0 2px; }
+.hero-corner-br { bottom:0;right:0;border-width:0 2px 2px 0; }
+.hero-label { font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--amber-dim); margin-bottom: 0.5rem; }
+.hero-reading { display: flex; align-items: flex-start; gap: 0.5rem; line-height: 1; margin-bottom: 0.75rem; }
+.hero-value {
+  font-size: clamp(72px, 10vw, 110px); font-weight: 700;
+  color: var(--amber); letter-spacing: -0.02em;
+  transition: color 0.4s; font-variant-numeric: tabular-nums;
+}
+.unit-toggle { display: flex; background: var(--bg3); border: 1px solid var(--border2); overflow: hidden; }
+.unit-btn {
+  padding: 4px 10px; font-family: var(--font-mono); font-size: 11px;
+  letter-spacing: 0.1em; color: var(--text-lo); background: transparent;
+  border: none; cursor: pointer; transition: background 0.15s, color 0.15s;
+}
+.unit-btn.active { background: var(--amber-lo); color: var(--amber); }
+.unit-btn:hover:not(.active) { color: var(--text-mid); }
+.hero-condition { font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--text-mid); margin-bottom: 1.5rem; }
+.hero-sub-row { display: flex; gap: 2rem; flex-wrap: wrap; }
+.hero-sub { display: flex; flex-direction: column; gap: 3px; }
+.hero-sub-label { font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--text-lo); }
+.hero-sub-val { font-size: 16px; color: var(--text-hi); font-variant-numeric: tabular-nums; }
+
+/* SIDE */
+.side-col { grid-column: 2; grid-row: 1 / 3; display: flex; flex-direction: column; gap: 1rem; }
+.instrument { background: var(--panel); border: 1px solid var(--border2); padding: 1rem 1.25rem; position: relative; }
+.instr-tag { font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-lo); margin-bottom: 0.6rem; }
+.instr-val { font-size: 32px; font-weight: 700; letter-spacing: -0.01em; color: var(--teal); font-variant-numeric: tabular-nums; line-height: 1; }
+.instr-unit { font-size: 11px; color: var(--teal-dim); margin-top: 3px; letter-spacing: 0.08em; }
+.gauge-bar-wrap { margin-top: 10px; height: 4px; background: var(--bg3); border: 1px solid var(--border); position: relative; overflow: visible; }
+.gauge-bar-fill { height: 100%; background: var(--teal); transition: width 0.6s cubic-bezier(0.4,0,0.2,1); position: relative; }
+.gauge-bar-fill::after { content:'';position:absolute;right:-1px;top:-3px;width:3px;height:10px;background:var(--teal); }
+.gauge-ticks { display:flex;justify-content:space-between;margin-top:4px;font-size:8px;color:var(--text-lo);letter-spacing:0.05em; }
+
+/* VCC instrument */
+.vcc-rail { margin-top: 10px; display: flex; gap: 4px; align-items: center; }
+.vcc-seg { width: 18px; height: 8px; border: 1px solid var(--border2); border-radius: 1px; transition: background 0.3s; }
+.vcc-seg.lit { background: var(--teal); }
+.vcc-seg.warn { background: var(--amber); }
+.vcc-seg.crit { background: var(--red); }
+
+/* RSSI instrument */
+.rssi-bars-large { display: flex; align-items: flex-end; gap: 4px; height: 32px; margin-top: 10px; }
+.rssi-bar-large { flex: 1; border-radius: 2px; background: var(--border2); transition: background 0.3s, height 0.4s; }
+.rssi-bar-large.active-good { background: var(--teal); }
+.rssi-bar-large.active-mid  { background: var(--amber); }
+.rssi-bar-large.active-bad  { background: var(--red); }
+
+/* warning badge */
+.warning-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 9px; letter-spacing: 0.15em; text-transform: uppercase;
+  padding: 3px 8px; background: var(--red-dim); color: var(--red);
+  border: 1px solid var(--red-dim); margin-top: 6px;
+  opacity: 0; transition: opacity 0.3s;
+}
+.warning-badge.visible { opacity: 1; }
+.warn-blink { animation: blink-warn 1s step-start infinite; }
+@keyframes blink-warn { 50% { opacity: 0; } }
+
+/* INSTRUMENTS ROW */
+.instr-row { grid-column: 1; grid-row: 2; display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+.instr-small { background: var(--panel); border: 1px solid var(--border2); padding: 1rem 1.25rem; }
+.instr-small-tag { font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-lo); margin-bottom: 0.5rem; }
+.instr-small-val { font-size: 24px; font-weight: 700; color: var(--text-hi); font-variant-numeric: tabular-nums; line-height: 1; }
+.instr-small-unit { font-size: 10px; color: var(--text-mid); margin-top: 3px; letter-spacing: 0.06em; }
+.sparkline-wrap { margin-top: 8px; height: 28px; display: flex; align-items: flex-end; gap: 2px; }
+.spark-bar { flex: 1; background: var(--border2); border-radius: 1px; }
+.spark-bar.hi { background: var(--amber-dim); }
+
+/* STATUS STRIP */
+.status-strip {
+  background: var(--panel); border: 1px solid var(--border2);
+  padding: 0.75rem 1.25rem;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 1rem; flex-wrap: wrap;
+}
+.status-item { display: flex; flex-direction: column; gap: 2px; }
+.status-key { font-size: 8px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-lo); }
+.status-val { font-size: 12px; color: var(--text-mid); letter-spacing: 0.05em; }
+.status-divider { width: 1px; height: 28px; background: var(--border2); }
+.sensor-health { display: flex; align-items: center; gap: 6px; }
+.health-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--teal); box-shadow: 0 0 6px var(--teal); }
+.health-label { font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--teal); }
+
+/* COORD STRIP */
+.coord-strip {
+  display: flex; align-items: center; gap: 1.5rem;
+  padding: 0.4rem 1rem; background: var(--bg2); border: 1px solid var(--border);
+  font-size: 9px; letter-spacing: 0.12em; color: var(--text-lo); flex-wrap: wrap;
+}
+.coord-val { color: var(--text-mid); }
+
+/* ERROR STATE */
+.fetch-error {
+  display: none; align-items: center; gap: 8px;
+  padding: 0.5rem 1rem; background: var(--red-dim);
+  border: 1px solid var(--red-dim); font-size: 10px;
+  letter-spacing: 0.12em; text-transform: uppercase; color: var(--red);
+}
+.fetch-error.visible { display: flex; }
+
+/* REVEAL */
+.shell > * { opacity: 0; transform: translateY(6px); animation: reveal 0.4s ease forwards; }
+.shell > *:nth-child(1){animation-delay:0.05s;} .shell > *:nth-child(2){animation-delay:0.12s;}
+.shell > *:nth-child(3){animation-delay:0.20s;} .shell > *:nth-child(4){animation-delay:0.28s;}
+.shell > *:nth-child(5){animation-delay:0.35s;} .shell > *:nth-child(6){animation-delay:0.40s;}
+.shell > *:nth-child(7){animation-delay:0.45s;}
+@keyframes reveal { to { opacity: 1; transform: translateY(0); } }
+
+/* RESPONSIVE */
+@media (max-width: 780px) {
+  .main-grid { grid-template-columns: 1fr; }
+  .side-col { grid-column: 1; grid-row: auto; display: grid; grid-template-columns: 1fr 1fr; }
+  .instr-row { grid-column: 1; grid-row: auto; grid-template-columns: 1fr 1fr; }
+  .hero { padding: 1.5rem; }
+  .hero-value { font-size: 80px; }
+}
+@media (max-width: 480px) {
+  .side-col { grid-template-columns: 1fr; }
+  .instr-row { grid-template-columns: 1fr 1fr; }
+  .status-strip { flex-direction: column; align-items: flex-start; }
+  .status-divider { display: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="bg-layer">
+  <div class="bg-grid"></div>
+  <div class="radar-rings">
+    <div class="radar-ring-inner"></div>
+    <div class="radar-ring-inner"></div>
+    <div class="radar-ring-inner"></div>
+  </div>
+  <div class="bg-vignette"></div>
+  <div class="scanlines"></div>
+</div>
+<div class="radar-sweep-wrap"><div class="radar-sweep"></div></div>
+
+<div class="shell">
+
+  <div class="topbar">
+    <div class="topbar-left">
+      <div class="station-id">WX&#x2011;32 &nbsp;/&nbsp; STATION&#x2011;01</div>
+      <div class="fw-tag">FW v2.4.1</div>
+    </div>
+    <div class="topbar-right">
+      <div class="live-pill"><div class="live-dot"></div>LIVE</div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <div class="wifi-bars" id="wifi-bars">
+          <div class="wifi-bar"></div>
+          <div class="wifi-bar"></div>
+          <div class="wifi-bar"></div>
+          <div class="wifi-bar"></div>
+        </div>
+        <div class="wifi-label" id="wifi-label">&#x2014;</div>
+      </div>
+      <div class="last-update">UPDATED &nbsp;<span id="last-update-time">--:--:--</span></div>
+      <button class="refresh-btn" id="refresh-btn" onclick="refreshData()" aria-label="Refresh sensor data">
+        <span class="refresh-icon" id="refresh-icon">&#x21BA;</span>
+        REFRESH
+      </button>
+    </div>
+  </div>
+
+  <div class="fetch-error" id="fetch-error">
+    <span class="warn-blink">&#x25A0;</span>
+    FETCH ERROR &mdash; CHECK FLASK SERVER
+  </div>
+
+  <div class="main-grid">
+
+    <div class="hero">
+      <div class="hero-corner-tl"></div>
+      <div class="hero-corner-br"></div>
+      <div class="hero-label">AMBIENT TEMPERATURE &nbsp;&bull;&nbsp; SENSOR DHT22&#x2011;A</div>
+      <div class="hero-reading">
+        <div class="hero-value" id="hero-temp">&#x2014;</div>
+        <div style="padding-top:12px;">
+          <div class="unit-toggle" role="group" aria-label="Temperature unit">
+            <button class="unit-btn active" id="btn-f" onclick="setUnit('F')">&#xB0;F</button>
+            <button class="unit-btn"        id="btn-c" onclick="setUnit('C')">&#xB0;C</button>
+          </div>
+        </div>
+      </div>
+      <div class="hero-condition" id="hero-condition">AWAITING SENSOR DATA</div>
+      <div class="hero-sub-row">
+        <div class="hero-sub">
+          <div class="hero-sub-label">Heat index</div>
+          <div class="hero-sub-val" id="heat-index">&#x2014;</div>
+        </div>
+        <div class="hero-sub">
+          <div class="hero-sub-label">Dew point</div>
+          <div class="hero-sub-val" id="dew-point">&#x2014;</div>
+        </div>
+        <div class="hero-sub">
+          <div class="hero-sub-label">Delta from 72&#xB0;</div>
+          <div class="hero-sub-val" id="delta-avg">&#x2014;</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="side-col">
+
+      <div class="instrument">
+        <div class="instr-tag">Relative humidity &nbsp;/&nbsp; RH%</div>
+        <div class="instr-val" id="humidity-val">&#x2014;</div>
+        <div class="instr-unit">PERCENT &nbsp;&bull;&nbsp; &#xB1;2% ACCURACY</div>
+        <div class="gauge-bar-wrap">
+          <div class="gauge-bar-fill" id="humidity-bar" style="width:0%"></div>
+        </div>
+        <div class="gauge-ticks"><span>0</span><span>25</span><span>50</span><span>75</span><span>100</span></div>
+      </div>
+
+      <div class="instrument">
+        <div class="instr-tag">WiFi signal &nbsp;/&nbsp; RSSI</div>
+        <div class="instr-val" id="rssi-large" style="font-size:24px;">&#x2014;</div>
+        <div class="instr-unit" id="rssi-quality">dBm</div>
+        <div class="rssi-bars-large" id="rssi-bars-large" aria-hidden="true">
+          <div class="rssi-bar-large" style="height:20%"></div>
+          <div class="rssi-bar-large" style="height:40%"></div>
+          <div class="rssi-bar-large" style="height:60%"></div>
+          <div class="rssi-bar-large" style="height:80%"></div>
+          <div class="rssi-bar-large" style="height:100%"></div>
+        </div>
+      </div>
+
+      <div class="instrument">
+        <div class="instr-tag">Heat index alert &nbsp;/&nbsp; caution threshold</div>
+        <div class="instr-val" id="hi-val" style="color:var(--text-hi);font-size:24px;">&#x2014;</div>
+        <div class="instr-unit" style="color:var(--text-lo);">CAUTION ABOVE 91&#xB0;F</div>
+        <div class="warning-badge" id="warn-badge">
+          <span class="warn-blink">&#x25A0;</span> THRESHOLD EXCEEDED
+        </div>
+      </div>
+
+    </div>
+
+    <div class="instr-row">
+
+      <div class="instr-small">
+        <div class="instr-small-tag">Abs. humidity &nbsp;/&nbsp; g/m&#xB3;</div>
+        <div class="instr-small-val" id="abs-humid-val">&#x2014;</div>
+        <div class="instr-small-unit">G/M&#xB3; &nbsp;&bull;&nbsp; COMPUTED</div>
+        <div class="sparkline-wrap" id="ah-spark" aria-hidden="true"></div>
+      </div>
+
+      <div class="instr-small">
+        <div class="instr-small-tag">VCC rail &nbsp;/&nbsp; 3V3</div>
+        <div class="instr-small-val" id="vcc-val">&#x2014;</div>
+        <div class="instr-small-unit">VOLTS &nbsp;&bull;&nbsp; 3V3 REGULATED</div>
+        <div class="vcc-rail" id="vcc-rail" aria-hidden="true">
+          <div class="vcc-seg"></div><div class="vcc-seg"></div><div class="vcc-seg"></div>
+          <div class="vcc-seg"></div><div class="vcc-seg"></div><div class="vcc-seg"></div>
+          <div class="vcc-seg"></div><div class="vcc-seg"></div>
+        </div>
+      </div>
+
+      <div class="instr-small">
+        <div class="instr-small-tag">Uptime &nbsp;/&nbsp; ESP32</div>
+        <div class="instr-small-val" id="uptime-display" style="font-size:18px;">&#x2014;</div>
+        <div class="instr-small-unit">HH:MM:SS &nbsp;&bull;&nbsp; SINCE BOOT</div>
+        <div class="sparkline-wrap" id="temp-spark" aria-hidden="true"></div>
+      </div>
+
+    </div>
+
+  </div>
+
+  <div class="status-strip">
+    <div class="sensor-health">
+      <div class="health-dot" id="health-dot"></div>
+      <div class="health-label" id="health-label">AWAITING DATA</div>
+    </div>
+    <div class="status-divider"></div>
+    <div class="status-item">
+      <div class="status-key">Sensor ID</div>
+      <div class="status-val">DHT22&#x2011;0x4A</div>
+    </div>
+    <div class="status-divider"></div>
+    <div class="status-item">
+      <div class="status-key">Poll interval</div>
+      <div class="status-val">300 s</div>
+    </div>
+    <div class="status-divider"></div>
+    <div class="status-item">
+      <div class="status-key">Readings total</div>
+      <div class="status-val" id="readings-total">&#x2014;</div>
+    </div>
+    <div class="status-divider"></div>
+    <div class="status-item">
+      <div class="status-key">Last reading</div>
+      <div class="status-val" id="last-reading-time">&#x2014;</div>
+    </div>
+    <div class="status-divider"></div>
+    <div class="status-item">
+      <div class="status-key">RSSI</div>
+      <div class="status-val" id="rssi-strip">&#x2014;</div>
+    </div>
+  </div>
+
+  <div class="coord-strip">
+    <span>WX&#x2011;32 STATION</span>
+    <span>SENSOR &nbsp;<span class="coord-val">DHT22</span></span>
+    <span>PROTOCOL &nbsp;<span class="coord-val">HTTP POST</span></span>
+    <span>INTERVAL &nbsp;<span class="coord-val">300 s</span></span>
+    <span style="margin-left:auto;">ESP32&#x2011;WROOM&#x2011;32 &nbsp;&bull;&nbsp; FW v2.4.1</span>
+  </div>
+
+</div>
+
+<script>
+// ─────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────
+let unitF    = true;
+let latest   = null;
+let tempHistory = [];
+let ahHistory   = [];
+
+// ─────────────────────────────────────────────
+// FETCH FROM FLASK
+// /latest returns the most recent reading
+// /readings returns all readings (for history)
+// ─────────────────────────────────────────────
+async function fetchLatest() {
+  const res = await fetch('/latest');
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return await res.json();
+}
+
+async function fetchAll() {
+  const res = await fetch('/readings');
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return await res.json();
+}
+
+// ─────────────────────────────────────────────
+// COMPUTED VALUES
+// ─────────────────────────────────────────────
+function toC(f)  { return (f - 32) * 5/9; }
+function toF(c)  { return c * 9/5 + 32; }
+function fmt1(n) { return parseFloat(n).toFixed(1); }
+
+function heatIndex(f, rh) {
+  if (f < 80) return f;
+  return -42.379 + 2.04901523*f + 10.14333127*rh
+    - 0.22475541*f*rh - 0.00683783*f*f - 0.05481717*rh*rh
+    + 0.00122874*f*f*rh + 0.00085282*f*rh*rh - 0.00000199*f*f*rh*rh;
+}
+
+function dewPoint(f, rh) {
+  const c   = toC(f);
+  const alp = ((17.27 * c) / (237.7 + c)) + Math.log(rh / 100);
+  return toF((237.7 * alp) / (17.27 - alp));
+}
+
+function absHumidity(f, rh) {
+  const c  = toC(f);
+  const es = 6.112 * Math.exp((17.67 * c) / (c + 243.5));
+  return (es * rh / 100 * 2165) / (273.15 + c);
+}
+
+function condition(f, rh) {
+  if (f > 95)             return 'EXTREME HEAT \u2022 ALERT';
+  if (f > 85 && rh > 70) return 'HOT & HUMID \u2022 CAUTION';
+  if (f > 85)             return 'HOT \u2022 CAUTION';
+  if (f < 32)             return 'FREEZING \u2022 ALERT';
+  if (f < 50)             return 'COLD \u2022 MONITOR';
+  if (rh > 80)            return 'HIGH HUMIDITY \u2022 DAMP';
+  if (rh < 30)            return 'LOW HUMIDITY \u2022 DRY';
+  return 'NOMINAL \u2022 COMFORTABLE';
+}
+
+function fmtUptime(secs) {
+  if (!secs && secs !== 0) return '\u2014';
+  const h = String(Math.floor(secs / 3600)).padStart(2,'0');
+  const m = String(Math.floor((secs % 3600) / 60)).padStart(2,'0');
+  const s = String(secs % 60).padStart(2,'0');
+  return `${h}:${m}:${s}`;
+}
+
+function fmtTime(ts) {
+  return new Date(ts).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+}
+
+// ─────────────────────────────────────────────
+// RENDER
+// ─────────────────────────────────────────────
+function render(data, totalReadings) {
+  const f  = data.temperature_f;
+  const rh = data.humidity;
+  const hi = heatIndex(f, rh);
+  const dp = dewPoint(f, rh);
+  const ah = absHumidity(f, rh);
+  const dispTemp = unitF ? f      : toC(f);
+  const dispHI   = unitF ? hi     : toC(hi);
+  const dispDP   = unitF ? dp     : toC(dp);
+  const dlt      = f - 72.0;
+  const deg      = unitF ? '\u00B0F' : '\u00B0C';
+
+  // hero temp
+  const heroEl = document.getElementById('hero-temp');
+  heroEl.textContent = fmt1(dispTemp);
+  heroEl.style.color = f > 90 ? 'var(--red)' : f < 40 ? '#60aadd' : 'var(--amber)';
+
+  document.getElementById('hero-condition').textContent = condition(f, rh);
+  document.getElementById('heat-index').textContent     = fmt1(dispHI) + deg;
+  document.getElementById('dew-point').textContent      = fmt1(dispDP) + deg;
+  document.getElementById('delta-avg').textContent      = (dlt >= 0 ? '+' : '') + fmt1(unitF ? dlt : dlt*5/9) + deg;
+
+  // humidity
+  document.getElementById('humidity-val').textContent    = fmt1(rh);
+  document.getElementById('humidity-bar').style.width    = rh + '%';
+
+  // heat index panel
+  document.getElementById('hi-val').textContent = fmt1(dispHI) + deg;
+  document.getElementById('warn-badge').classList.toggle('visible', hi > 91);
+
+  // abs humidity
+  document.getElementById('abs-humid-val').textContent = fmt1(ah);
+
+  // VCC
+  const vcc = data.vcc || 3.3;
+  document.getElementById('vcc-val').textContent = vcc.toFixed(2);
+  const segs = document.querySelectorAll('#vcc-rail .vcc-seg');
+  const vccPct = Math.min(1, Math.max(0, (vcc - 2.8) / 0.8));
+  const litCount = Math.round(vccPct * segs.length);
+  segs.forEach((s, i) => {
+    s.classList.remove('lit','warn','crit');
+    if (i < litCount) {
+      s.classList.add(vcc < 3.0 ? 'crit' : vcc < 3.2 ? 'warn' : 'lit');
+    }
+  });
+
+  // uptime
+  document.getElementById('uptime-display').textContent = fmtUptime(data.uptime);
+
+  // RSSI
+  const rssi = data.rssi;
+  if (rssi !== null && rssi !== undefined) {
+    document.getElementById('rssi-large').textContent  = rssi + ' dBm';
+    document.getElementById('rssi-strip').textContent  = rssi + ' dBm';
+    document.getElementById('wifi-label').textContent  = rssi + ' dBm';
+
+    const quality = rssi > -60 ? 'EXCELLENT' : rssi > -70 ? 'GOOD' : rssi > -80 ? 'FAIR' : 'WEAK';
+    document.getElementById('rssi-quality').textContent = quality + ' \u2022 ' + rssi + ' dBm';
+
+    // small wifi bars in topbar
+    const activeBars = rssi > -60 ? 4 : rssi > -70 ? 3 : rssi > -80 ? 2 : 1;
+    document.querySelectorAll('#wifi-bars .wifi-bar').forEach((b, i) => {
+      b.classList.toggle('active', i < activeBars);
+    });
+
+    // large rssi bars
+    const rssiBarEls = document.querySelectorAll('#rssi-bars-large .rssi-bar-large');
+    const activeCount = rssi > -55 ? 5 : rssi > -65 ? 4 : rssi > -70 ? 3 : rssi > -80 ? 2 : 1;
+    const cls = rssi > -70 ? 'active-good' : rssi > -80 ? 'active-mid' : 'active-bad';
+    rssiBarEls.forEach((b, i) => {
+      b.classList.remove('active-good','active-mid','active-bad');
+      if (i < activeCount) b.classList.add(cls);
+    });
+  }
+
+  // status strip
+  document.getElementById('readings-total').textContent  = totalReadings || '\u2014';
+  document.getElementById('last-reading-time').textContent = fmtTime(data.timestamp);
+  document.getElementById('last-update-time').textContent  = new Date().toLocaleTimeString();
+
+  // health
+  document.getElementById('health-dot').style.background = 'var(--teal)';
+  document.getElementById('health-dot').style.boxShadow  = '0 0 6px var(--teal)';
+  document.getElementById('health-label').textContent    = 'SENSOR OK';
+  document.getElementById('health-label').style.color    = 'var(--teal)';
+
+  // hide error banner
+  document.getElementById('fetch-error').classList.remove('visible');
+
+  // sparklines
+  renderSpark('ah-spark', ahHistory);
+  renderSpark('temp-spark', tempHistory);
+}
+
+function renderSpark(id, data) {
+  const el = document.getElementById(id);
+  if (!el || !data.length) return;
+  const mn = Math.min(...data), mx = Math.max(...data), range = mx - mn || 1;
+  el.innerHTML = data.map((v, i) => {
+    const h = Math.round(4 + ((v - mn) / range) * 22);
+    return `<div class="spark-bar${i === data.length-1 ? ' hi' : ''}" style="height:${h}px"></div>`;
+  }).join('');
+}
+
+// ─────────────────────────────────────────────
+// REFRESH
+// ─────────────────────────────────────────────
+async function refreshData() {
+  const btn  = document.getElementById('refresh-btn');
+  const icon = document.getElementById('refresh-icon');
+  btn.disabled = true;
+  icon.classList.add('spinning');
+
+  try {
+    const [data, allReadings] = await Promise.all([fetchLatest(), fetchAll()]);
+    latest = data;
+
+    // build history from all readings (last 8)
+    const sorted = [...allReadings].sort((a,b) => new Date(a.timestamp) - new Date(b.timestamp));
+    tempHistory = sorted.slice(-8).map(r => r.temperature_f);
+    ahHistory   = sorted.slice(-8).map(r => absHumidity(r.temperature_f, r.humidity));
+
+    render(data, allReadings.length);
+  } catch (e) {
+    console.error('Fetch failed:', e);
+    document.getElementById('fetch-error').classList.add('visible');
+    document.getElementById('health-dot').style.background  = 'var(--red)';
+    document.getElementById('health-dot').style.boxShadow   = '0 0 6px var(--red)';
+    document.getElementById('health-label').textContent     = 'FETCH ERROR';
+    document.getElementById('health-label').style.color     = 'var(--red)';
+  }
+
+  icon.classList.remove('spinning');
+  btn.disabled = false;
+}
+
+// ─────────────────────────────────────────────
+// UNIT TOGGLE
+// ─────────────────────────────────────────────
+function setUnit(u) {
+  unitF = u === 'F';
+  document.getElementById('btn-f').classList.toggle('active', unitF);
+  document.getElementById('btn-c').classList.toggle('active', !unitF);
+  if (latest) render(latest, null);
+}
+
+// ─────────────────────────────────────────────
+// INIT
+// auto-refresh every 5 minutes to match ESP32 poll
+// ─────────────────────────────────────────────
+refreshData();
+setInterval(refreshData, 300000);
+</script>
+</body>
+</html>
