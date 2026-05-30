@@ -41,7 +41,6 @@ void loop() {
       return;
     }
 
-    // Get real ESP32 diagnostics
     int   rssi         = WiFi.RSSI();
     float vcc          = analogReadMilliVolts(34) / 1000.0; // 3.3V rail approximation
     long  uptime_secs  = millis() / 1000;
