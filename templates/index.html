@@ -653,17 +653,31 @@ function render(data, totalReadings) {
   document.getElementById('abs-humid-val').textContent = fmt1(ah);
 
   // VCC
-  const vcc = data.vcc || 3.3;
-  document.getElementById('vcc-val').textContent = vcc.toFixed(2);
+  const vcc = data.vcc;
   const segs = document.querySelectorAll('#vcc-rail .vcc-seg');
-  const vccPct = Math.min(1, Math.max(0, (vcc - 2.8) / 0.8));
-  const litCount = Math.round(vccPct * segs.length);
-  segs.forEach((s, i) => {
-    s.classList.remove('lit','warn','crit');
-    if (i < litCount) {
-      s.classList.add(vcc < 3.0 ? 'crit' : vcc < 3.2 ? 'warn' : 'lit');
-    }
+  
+  segs.forEach(s => {
+    s.classList.remove('lit', 'warn', 'crit');
   });
+  
+  if (typeof vcc === 'number' && Number.isFinite(vcc)) {
+    document.getElementById('vcc-val').textContent = vcc.toFixed(2);
+  
+    const vccPct = Math.min(1, Math.max(0, (vcc - 2.8) / 0.8));
+    const litCount = Math.round(vccPct * segs.length);
+  
+    segs.forEach((s, i) => {
+      if (i < litCount) {
+        s.classList.add(
+          vcc < 3.0 ? 'crit' :
+          vcc < 3.2 ? 'warn' :
+          'lit'
+        );
+      }
+    });
+  } else {
+    document.getElementById('vcc-val').textContent = '—';
+  }
 
   // uptime
   document.getElementById('uptime-display').textContent = fmtUptime(data.uptime);
