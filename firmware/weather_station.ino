@@ -6,7 +6,7 @@
 
 const char* ssid      = "YOUR WIFI NETWORK NAME";
 const char* password  = "YOUR WIFI PASSWORD";
-const char* serverUrl = "http://YOUR_IP_ADDRESS/readings";
+const char* serverUrl = "http://YOUR_IP_ADDRESS:5000/readings";
 
 
 #define DHTPIN 4
@@ -42,7 +42,6 @@ void loop() {
     }
 
     int   rssi         = WiFi.RSSI();
-    float vcc          = analogReadMilliVolts(34) / 1000.0; // 3.3V rail approximation
     long  uptime_secs  = millis() / 1000;
 
     Serial.print("Sending — ");
@@ -57,7 +56,6 @@ void loop() {
     doc["temperature_f"] = tempF;
     doc["humidity"]      = humidity;
     doc["rssi"]          = rssi;
-    doc["vcc"]           = 3.3;       
     doc["uptime"]        = uptime_secs;
 
     String jsonString;
