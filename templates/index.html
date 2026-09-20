@@ -540,6 +540,82 @@ function fmtTime(ts) {
   return new Date(ts).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
 }
 
+const LIVE_MAX_AGE_MS    = 6 * 60 * 1000;
+const OFFLINE_MIN_AGE_MS = 12 * 60 * 1000;
+
+function readingAgeMs(timestamp) {
+  const parsed = new Date(timestamp).getTime();
+
+  if (!Number.isFinite(parsed)) {
+    return Infinity;
+  }
+
+  return Math.max(0, Date.now() - parsed);
+}
+
+function fmtAge(ageMs) {
+  if (!Number.isFinite(ageMs)) return 'UNKNOWN';
+
+  const seconds = Math.floor(ageMs / 1000);
+
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+
+  const minutes = Math.floor(seconds / 60);
+
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+
+  return `${hours}h ${remainingMinutes}m`;
+}
+
+function setSensorHealth(timestamp) {
+  const ageMs = readingAgeMs(timestamp);
+
+  let healthLabel;
+  let liveText;
+  let color;
+
+  if (ageMs <= LIVE_MAX_AGE_MS) {
+    healthLabel = 'SENSOR OK';
+    liveText = 'LIVE';
+    color = 'var(--teal)';
+  } else if (ageMs < OFFLINE_MIN_AGE_MS) {
+    healthLabel = 'DATA STALE';
+    liveText = 'STALE';
+    color = 'var(--amber)';
+  } else {
+    healthLabel = 'DEVICE OFFLINE';
+    liveText = 'OFFLINE';
+    color = 'var(--red)';
+  }
+
+  const healthDot = document.getElementById('health-dot');
+  const healthText = document.getElementById('health-label');
+  const liveDot = document.getElementById('live-dot');
+  const liveState = document.getElementById('live-state');
+  const livePill = document.getElementById('live-pill');
+
+  healthDot.style.background = color;
+  healthDot.style.boxShadow = `0 0 6px ${color}`;
+
+  healthText.textContent = healthLabel;
+  healthText.style.color = color;
+
+  liveDot.style.background = color;
+  liveDot.style.animation = liveText === 'LIVE' ? '' : 'none';
+
+  liveState.textContent = liveText;
+  livePill.style.color = color;
+
+  return ageMs;
+}
+
 // ─────────────────────────────────────────────
 // RENDER
 // ─────────────────────────────────────────────
@@ -620,14 +696,13 @@ function render(data, totalReadings) {
 
   // status strip
   document.getElementById('readings-total').textContent  = totalReadings || '\u2014';
-  document.getElementById('last-reading-time').textContent = fmtTime(data.timestamp);
-  document.getElementById('last-update-time').textContent  = new Date().toLocaleTimeString();
+  const ageMs = setSensorHealth(data.timestamp);
 
-  // health
-  document.getElementById('health-dot').style.background = 'var(--teal)';
-  document.getElementById('health-dot').style.boxShadow  = '0 0 6px var(--teal)';
-  document.getElementById('health-label').textContent    = 'SENSOR OK';
-  document.getElementById('health-label').style.color    = 'var(--teal)';
+  document.getElementById('last-reading-time').textContent =
+    `${fmtTime(data.timestamp)} (${fmtAge(ageMs)} ago)`;
+
+  document.getElementById('last-update-time').textContent =
+    new Date().toLocaleTimeString();
 
   // hide error banner
   document.getElementById('fetch-error').classList.remove('visible');
@@ -672,6 +747,10 @@ async function refreshData() {
     document.getElementById('health-dot').style.background  = 'var(--red)';
     document.getElementById('health-dot').style.boxShadow   = '0 0 6px var(--red)';
     document.getElementById('health-label').textContent     = 'FETCH ERROR';
+    document.getElementById('live-dot').style.background = 'var(--red)';
+    document.getElementById('live-dot').style.animation = 'none';
+    document.getElementById('live-state').textContent = 'BACKEND ERR';
+    document.getElementById('live-pill').style.color = 'var(--red)';
     document.getElementById('health-label').style.color     = 'var(--red)';
   }
 
